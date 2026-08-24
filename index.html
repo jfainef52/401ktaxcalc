@@ -221,6 +221,7 @@
 
   table{
     width:100%;
+    min-width:640px;
     border-collapse:collapse;
     font-family:'Helvetica Neue',Arial,sans-serif;
     font-size:13px;
@@ -243,7 +244,7 @@
   }
   tbody td:first-child{text-align:left;color:var(--gold-bright);font-weight:600;}
   tbody tr.pre-rmd td{color:var(--grey);}
-  .table-scroll{max-height:340px;overflow-y:auto;border:1px solid rgba(200,169,110,0.15);}
+  .table-scroll{max-height:340px;overflow-y:auto;overflow-x:auto;border:1px solid rgba(200,169,110,0.15);}
   .table-scroll::-webkit-scrollbar{width:8px;}
   .table-scroll::-webkit-scrollbar-thumb{background:rgba(200,169,110,0.4);}
 
@@ -351,9 +352,15 @@
         </div>
 
         <div class="field">
-          <label>Annual Social Security Income <span class="field-note" style="display:inline;margin:0;">(optional)</span></label>
-          <input type="number" id="ssIncome" value="0" step="1000" min="0">
+          <label>Monthly Social Security Income <span class="field-note" style="display:inline;margin:0;">(optional)</span></label>
+          <input type="number" id="ssIncome" value="0" step="100" min="0">
           <div class="field-note">Used to estimate how much of Social Security becomes taxable alongside RMDs. Not included in the state tax calculation below.</div>
+        </div>
+
+        <div class="field">
+          <label>Monthly Pension Income <span class="field-note" style="display:inline;margin:0;">(optional)</span></label>
+          <input type="number" id="pensionIncome" value="0" step="100" min="0">
+          <div class="field-note">Taxed as ordinary income at both federal and state level, and counted toward Social Security's taxability calculation. Some states fully or partially exempt government pensions specifically &mdash; that distinction isn't modeled here, so this may overstate state tax for government pensioners in those states.</div>
         </div>
 
         <div class="field">
@@ -407,10 +414,11 @@
                 <th>Age</th>
                 <th>Year-End Balance</th>
                 <th>RMD</th>
+                <th>Pension</th>
                 <th>Taxable SS</th>
                 <th>Fed Tax</th>
                 <th>State Tax</th>
-                <th>Net to You</th>
+                <th>Net Cash Flow</th>
               </tr>
             </thead>
             <tbody id="scheduleBody"></tbody>
@@ -544,13 +552,15 @@ const startBalanceEl = document.getElementById('startBalance');
 const horizonAgeEl = document.getElementById('horizonAge');
 const growthRateEl = document.getElementById('growthRate');
 const ssIncomeEl = document.getElementById('ssIncome');
+const pensionIncomeEl = document.getElementById('pensionIncome');
 
 function calculate(){
   const startAge = parseInt(startAgeEl.value);
   const startBalance = parseFloat(startBalanceEl.value) || 0;
   const horizonAge = parseInt(horizonAgeEl.value);
   const growth = parseFloat(growthRateEl.value)/100;
-  const ssIncome = parseFloat(ssIncomeEl.value) || 0;
+  const ssIncome = (parseFloat(ssIncomeEl.value) || 0) * 12;
+  const pensionIncome = (parseFloat(pensionIncomeEl.value) || 0) * 12;
   const stateRate = STATE_RATES[stateSelect.value];
 
   document.getElementById('ageVal').textContent = startAge;
@@ -580,9 +590,9 @@ function calculate(){
       rmd = balance / divisor;
       rmd = Math.min(rmd, balance);
 
-      taxableSS = taxableSocialSecurity(ssIncome, rmd, filingStatus);
-      fed = federalTax(rmd + taxableSS, filingStatus);
-      state = rmd * stateRate;
+      taxableSS = taxableSocialSecurity(ssIncome, rmd + pensionIncome, filingStatus);
+      fed = federalTax(rmd + pensionIncome + taxableSS, filingStatus);
+      state = (rmd + pensionIncome) * stateRate;
 
       balance -= rmd;
       totalDist += rmd;
@@ -590,7 +600,9 @@ function calculate(){
       totalState += state;
     }
 
-    rows.push({age, balance, rmd, fed, state, taxableSS, net: rmd-fed-state, isRmdYear});
+    const grossCash = isRmdYear ? (rmd + pensionIncome + ssIncome) : 0;
+    const netCash = isRmdYear ? (grossCash - fed - state) : 0;
+    rows.push({age, balance, rmd, fed, state, taxableSS, pensionIncome: isRmdYear ? pensionIncome : 0, net: netCash, isRmdYear});
   }
 
   // render stats
@@ -600,8 +612,11 @@ function calculate(){
   document.getElementById('endBalance').textContent = fmtMoneyShort(balance);
 
   const blendedRate = totalDist>0 ? ((totalFed+totalState)/totalDist)*100 : 0;
+  const extraIncomeNote = (ssIncome > 0 || pensionIncome > 0)
+    ? ` Federal tax reflects this household's full income picture, including pension and Social Security taxability.`
+    : '';
   document.getElementById('whiteboardLine').innerHTML =
-    `From age <strong>${startAge}</strong> to <strong>${effectiveHorizon}</strong>, this ${filingStatus==='mfj'?'household':'individual'} in <strong>${stateSelect.value}</strong> is projected to be forced into <strong>${fmtMoney(totalDist)}</strong> of required distributions &mdash; and hand roughly <strong>${fmtMoney(totalFed+totalState)}</strong> of it straight to the IRS and state, a blended <strong>${blendedRate.toFixed(1)}%</strong> tax rate on money they never chose to take out.`;
+    `From age <strong>${startAge}</strong> to <strong>${effectiveHorizon}</strong>, this ${filingStatus==='mfj'?'household':'individual'} in <strong>${stateSelect.value}</strong> is projected to be forced into <strong>${fmtMoney(totalDist)}</strong> of required distributions &mdash; and hand roughly <strong>${fmtMoney(totalFed+totalState)}</strong> of it straight to the IRS and state, a blended <strong>${blendedRate.toFixed(1)}%</strong> tax rate on money they never chose to take out.${extraIncomeNote}`;
 
   // render table
   const tbody = document.getElementById('scheduleBody');
@@ -613,6 +628,7 @@ function calculate(){
       <td>${r.age}</td>
       <td>${fmtMoney(r.balance)}</td>
       <td>${r.isRmdYear ? fmtMoney(r.rmd) : '&mdash;'}</td>
+      <td>${r.isRmdYear ? fmtMoney(r.pensionIncome) : '&mdash;'}</td>
       <td>${r.isRmdYear ? fmtMoney(r.taxableSS) : '&mdash;'}</td>
       <td>${r.isRmdYear ? fmtMoney(r.fed) : '&mdash;'}</td>
       <td>${r.isRmdYear ? fmtMoney(r.state) : '&mdash;'}</td>
