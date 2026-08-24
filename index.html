@@ -89,10 +89,11 @@
     margin:0 0 60px;
     overflow:hidden;
   }
-  .calc-grid{display:grid;grid-template-columns:1fr;}
+  .calc-grid{display:grid;grid-template-columns:1fr;min-width:0;}
   @media(min-width:860px){
     .calc-grid{grid-template-columns:380px 1fr;}
   }
+  .calc-grid > div{min-width:0;}
 
   /* INPUTS PANEL */
   .inputs{
@@ -119,7 +120,7 @@
     margin-bottom:8px;
   }
   .field label span.val{color:var(--gold-bright);font-weight:600;}
-  input[type="number"], select{
+  input[type="number"], input[type="text"], select{
     width:100%;
     background:var(--navy-deep);
     border:1px solid rgba(200,169,110,0.3);
@@ -130,7 +131,7 @@
     border-radius:2px;
     outline:none;
   }
-  input[type="number"]:focus, select:focus{border-color:var(--gold);}
+  input[type="number"]:focus, input[type="text"]:focus, select:focus{border-color:var(--gold);}
   input[type="range"]{
     width:100%;
     accent-color:var(--gold);
@@ -181,6 +182,7 @@
     grid-template-columns:repeat(2,1fr);
     gap:16px;
     margin-bottom:28px;
+    min-width:0;
   }
   @media(min-width:520px){
     .stat-row{grid-template-columns:repeat(4,1fr);}
@@ -190,6 +192,7 @@
     border:1px solid rgba(200,169,110,0.18);
     padding:16px 14px;
     border-radius:2px;
+    min-width:0;
   }
   .stat .num{
     font-size:22px;
@@ -338,7 +341,7 @@
 
         <div class="field">
           <label>Current Qualified Plan Balance</label>
-          <input type="number" id="startBalance" value="1500000" step="10000" min="0">
+          <input type="text" inputmode="numeric" id="startBalance" value="$1,500,000">
         </div>
 
         <div class="field">
@@ -353,13 +356,13 @@
 
         <div class="field">
           <label>Monthly Social Security Income <span class="field-note" style="display:inline;margin:0;">(optional)</span></label>
-          <input type="number" id="ssIncome" value="0" step="100" min="0">
+          <input type="text" inputmode="numeric" id="ssIncome" value="$0">
           <div class="field-note">Used to estimate how much of Social Security becomes taxable alongside RMDs. Not included in the state tax calculation below.</div>
         </div>
 
         <div class="field">
           <label>Monthly Pension Income <span class="field-note" style="display:inline;margin:0;">(optional)</span></label>
-          <input type="number" id="pensionIncome" value="0" step="100" min="0">
+          <input type="text" inputmode="numeric" id="pensionIncome" value="$0">
           <div class="field-note">Taxed as ordinary income at both federal and state level, and counted toward Social Security's taxability calculation. Some states fully or partially exempt government pensions specifically &mdash; that distinction isn't modeled here, so this may overstate state tax for government pensioners in those states.</div>
         </div>
 
@@ -547,6 +550,15 @@ function fmtMoneyShort(n){
   return '$' + Math.round(n);
 }
 
+function parseCurrency(str){
+  const n = parseFloat(String(str).replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+function formatCurrencyField(el){
+  const n = parseCurrency(el.value);
+  el.value = '$' + Math.round(n).toLocaleString('en-US');
+}
+
 const startAgeEl = document.getElementById('startAge');
 const startBalanceEl = document.getElementById('startBalance');
 const horizonAgeEl = document.getElementById('horizonAge');
@@ -556,11 +568,11 @@ const pensionIncomeEl = document.getElementById('pensionIncome');
 
 function calculate(){
   const startAge = parseInt(startAgeEl.value);
-  const startBalance = parseFloat(startBalanceEl.value) || 0;
+  const startBalance = parseCurrency(startBalanceEl.value);
   const horizonAge = parseInt(horizonAgeEl.value);
   const growth = parseFloat(growthRateEl.value)/100;
-  const ssIncome = (parseFloat(ssIncomeEl.value) || 0) * 12;
-  const pensionIncome = (parseFloat(pensionIncomeEl.value) || 0) * 12;
+  const ssIncome = parseCurrency(ssIncomeEl.value) * 12;
+  const pensionIncome = parseCurrency(pensionIncomeEl.value) * 12;
   const stateRate = STATE_RATES[stateSelect.value];
 
   document.getElementById('ageVal').textContent = startAge;
@@ -638,10 +650,19 @@ function calculate(){
   });
 }
 
-[startAgeEl, startBalanceEl, horizonAgeEl, growthRateEl, stateSelect].forEach(el=>{
+[startAgeEl, startBalanceEl, horizonAgeEl, growthRateEl, ssIncomeEl, pensionIncomeEl, stateSelect].forEach(el=>{
   el.addEventListener('input', calculate);
   el.addEventListener('change', calculate);
 });
+
+[startBalanceEl, ssIncomeEl, pensionIncomeEl].forEach(el=>{
+  el.addEventListener('blur', ()=>{ formatCurrencyField(el); calculate(); });
+  el.addEventListener('focus', ()=>{ el.value = parseCurrency(el.value) || ''; });
+});
+
+formatCurrencyField(startBalanceEl);
+formatCurrencyField(ssIncomeEl);
+formatCurrencyField(pensionIncomeEl);
 
 calculate();
 </script>
