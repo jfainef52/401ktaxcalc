@@ -33,9 +33,9 @@
     border-bottom:1px solid rgba(200,169,110,0.25);
     padding:22px 0;
   }
-  header .wrap{display:flex;align-items:center;justify-content:space-between;}
-  .brand-mark{display:flex;align-items:center;gap:14px;}
-  .brand-mark svg{height:36px;width:auto;}
+  header .wrap{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;row-gap:10px;}
+  .brand-mark{display:flex;align-items:center;gap:14px;flex-wrap:wrap;row-gap:6px;}
+  .brand-mark svg{height:36px;width:auto;flex-shrink:0;}
   .brand-name{
     font-family:'Helvetica Neue',Arial,sans-serif;
     font-size:12px;
@@ -51,6 +51,11 @@
     letter-spacing:0.12em;
     text-transform:uppercase;
     color:var(--gold);
+    white-space:nowrap;
+  }
+  @media(max-width:520px){
+    .brand-name{display:none;}
+    header .wrap{justify-content:center;gap:10px;}
   }
 
   /* HERO */
@@ -314,9 +319,9 @@
         </g>
         <rect fill="#C8A96E" x="2011.69" y="1828.72" width="15.92" height="1342.55"/>
       </svg>
-      <div class="brand-name">Integrated&nbsp;Planning&nbsp;Partners</div>
+      <div class="brand-name">Integrated Planning Partners</div>
     </div>
-    <div class="tool-tag">401(k)&nbsp;&amp;&nbsp;IRA&nbsp;Tax&nbsp;Calc</div>
+    <div class="tool-tag">401(k) &amp; IRA Tax Calc</div>
   </div>
 </header>
 
@@ -352,6 +357,12 @@
         <div class="field">
           <label>Assumed Annual Growth Rate <span class="val" id="growthVal">6.0%</span></label>
           <input type="range" id="growthRate" min="0" max="10" step="0.5" value="6">
+        </div>
+
+        <div class="field">
+          <label>Future Tax Rate Increase <span class="val" id="rateIncreaseVal">+0.0%</span></label>
+          <input type="range" id="rateIncrease" min="0" max="10" step="0.5" value="0">
+          <div class="field-note">Models the risk of federal brackets rising from today's rates &mdash; added as percentage points to every bracket (e.g. +2% turns a 22% bracket into 24%). Applies to federal tax only.</div>
         </div>
 
         <div class="field">
@@ -488,6 +499,10 @@ const STATE_RATES = {
 /* MS (qualified distributions), PA (59.5+), and MI (2026 phase-out complete */
 /* for most filers, exempt up to $67,610 single / $135,220 MFJ). Several     */
 /* other states offer partial pension/retirement exclusions (e.g. NY $20k,  */
+
+const NO_INCOME_TAX_STATES = new Set([
+  "Alaska","Florida","Nevada","New Hampshire","South Dakota","Tennessee","Texas","Washington","Wyoming"
+]);
 /* GA $65k) that are not modeled here — see disclaimer.                     */
 
 /* ---------- Federal provisional-income thresholds for Social Security taxability ---------- */
@@ -526,7 +541,8 @@ btnMFJ.addEventListener('click', ()=>{filingStatus='mfj';btnMFJ.classList.add('a
 btnSingle.addEventListener('click', ()=>{filingStatus='single';btnSingle.classList.add('active');btnMFJ.classList.remove('active');calculate();});
 
 /* ---------- fed tax calc (marginal, applied to RMD income only, net of std deduction) ---------- */
-function federalTax(income, status){
+function federalTax(income, status, rateIncreasePoints){
+  const bump = (rateIncreasePoints || 0) / 100;
   const ded = STD_DEDUCTION[status];
   let taxable = Math.max(0, income - ded);
   const brackets = FED_BRACKETS[status];
@@ -534,7 +550,7 @@ function federalTax(income, status){
   for(const b of brackets){
     if(taxable > lower){
       const chunk = Math.min(taxable, b.upTo) - lower;
-      tax += chunk * b.rate;
+      tax += chunk * (b.rate + bump);
       lower = b.upTo;
     } else break;
   }
@@ -563,6 +579,7 @@ const startAgeEl = document.getElementById('startAge');
 const startBalanceEl = document.getElementById('startBalance');
 const horizonAgeEl = document.getElementById('horizonAge');
 const growthRateEl = document.getElementById('growthRate');
+const rateIncreaseEl = document.getElementById('rateIncrease');
 const ssIncomeEl = document.getElementById('ssIncome');
 const pensionIncomeEl = document.getElementById('pensionIncome');
 
@@ -571,15 +588,19 @@ function calculate(){
   const startBalance = parseCurrency(startBalanceEl.value);
   const horizonAge = parseInt(horizonAgeEl.value);
   const growth = parseFloat(growthRateEl.value)/100;
+  const rateIncrease = parseFloat(rateIncreaseEl.value);
   const ssIncome = parseCurrency(ssIncomeEl.value) * 12;
   const pensionIncome = parseCurrency(pensionIncomeEl.value) * 12;
   const stateRate = STATE_RATES[stateSelect.value];
 
   document.getElementById('ageVal').textContent = startAge;
   document.getElementById('horizonVal').textContent = horizonAge;
-  document.getElementById('growthVal').textContent = growth*100 + '%';
+  document.getElementById('growthVal').textContent = parseFloat(growthRateEl.value).toFixed(1) + '%';
+  document.getElementById('rateIncreaseVal').textContent = '+' + rateIncrease.toFixed(1) + '%';
   document.getElementById('stateNote').textContent = stateRate === 0
-    ? stateSelect.value + " has no state income tax."
+    ? (NO_INCOME_TAX_STATES.has(stateSelect.value)
+        ? stateSelect.value + " has no state income tax."
+        : stateSelect.value + " exempts qualified plan distributions from state tax.")
     : "Approx. state rate applied: " + (stateRate*100).toFixed(2) + "%.";
 
   let balance = startBalance;
@@ -603,7 +624,7 @@ function calculate(){
       rmd = Math.min(rmd, balance);
 
       taxableSS = taxableSocialSecurity(ssIncome, rmd + pensionIncome, filingStatus);
-      fed = federalTax(rmd + pensionIncome + taxableSS, filingStatus);
+      fed = federalTax(rmd + pensionIncome + taxableSS, filingStatus, rateIncrease);
       state = (rmd + pensionIncome) * stateRate;
 
       balance -= rmd;
@@ -627,8 +648,11 @@ function calculate(){
   const extraIncomeNote = (ssIncome > 0 || pensionIncome > 0)
     ? ` Federal tax reflects this household's full income picture, including pension and Social Security taxability.`
     : '';
+  const rateIncreaseNote = rateIncrease > 0
+    ? ` Federal brackets are also modeled ${rateIncrease.toFixed(1)} points higher than today's rates, reflecting the risk that current rates don't hold.`
+    : '';
   document.getElementById('whiteboardLine').innerHTML =
-    `From age <strong>${startAge}</strong> to <strong>${effectiveHorizon}</strong>, this ${filingStatus==='mfj'?'household':'individual'} in <strong>${stateSelect.value}</strong> is projected to be forced into <strong>${fmtMoney(totalDist)}</strong> of required distributions &mdash; and hand roughly <strong>${fmtMoney(totalFed+totalState)}</strong> of it straight to the IRS and state, a blended <strong>${blendedRate.toFixed(1)}%</strong> tax rate on money they never chose to take out.${extraIncomeNote}`;
+    `From age <strong>${startAge}</strong> to <strong>${effectiveHorizon}</strong>, this ${filingStatus==='mfj'?'household':'individual'} in <strong>${stateSelect.value}</strong> is projected to be forced into <strong>${fmtMoney(totalDist)}</strong> of required distributions &mdash; and hand roughly <strong>${fmtMoney(totalFed+totalState)}</strong> of it straight to the IRS and state, a blended <strong>${blendedRate.toFixed(1)}%</strong> tax rate on money they never chose to take out.${extraIncomeNote}${rateIncreaseNote}`;
 
   // render table
   const tbody = document.getElementById('scheduleBody');
@@ -650,7 +674,7 @@ function calculate(){
   });
 }
 
-[startAgeEl, startBalanceEl, horizonAgeEl, growthRateEl, ssIncomeEl, pensionIncomeEl, stateSelect].forEach(el=>{
+[startAgeEl, startBalanceEl, horizonAgeEl, growthRateEl, rateIncreaseEl, ssIncomeEl, pensionIncomeEl, stateSelect].forEach(el=>{
   el.addEventListener('input', calculate);
   el.addEventListener('change', calculate);
 });
