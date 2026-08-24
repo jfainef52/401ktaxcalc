@@ -351,6 +351,12 @@
         </div>
 
         <div class="field">
+          <label>Annual Social Security Income <span class="field-note" style="display:inline;margin:0;">(optional)</span></label>
+          <input type="number" id="ssIncome" value="0" step="1000" min="0">
+          <div class="field-note">Used to estimate how much of Social Security becomes taxable alongside RMDs. Not included in the state tax calculation below.</div>
+        </div>
+
+        <div class="field">
           <label>State of Residence</label>
           <select id="stateSelect"></select>
           <div class="field-note" id="stateNote"></div>
@@ -365,7 +371,7 @@
         </div>
 
         <div class="field-note">
-          RMD schedule uses the IRS Uniform Lifetime Table, current SECURE 2.0 start age (73), and 2026 federal brackets / standard deduction. State figures are simplified top marginal or flat rates for illustration. This is a planning estimate, not tax advice.
+          RMD schedule uses the IRS Uniform Lifetime Table, current SECURE 2.0 start age (73), and 2026 federal brackets / standard deduction. Federal tax includes any Social Security made taxable by provisional income. State figures reflect qualified-plan-specific treatment for the 9 no-income-tax states plus IL, IA, MS, PA, and MI, which fully exempt retirement distributions; other states show a simplified flat/top-marginal rate and may have partial pension exclusions not modeled here. This is a planning estimate, not tax advice.
         </div>
       </div>
 
@@ -401,6 +407,7 @@
                 <th>Age</th>
                 <th>Year-End Balance</th>
                 <th>RMD</th>
+                <th>Taxable SS</th>
                 <th>Fed Tax</th>
                 <th>State Tax</th>
                 <th>Net to You</th>
@@ -455,16 +462,41 @@ const STD_DEDUCTION = { mfj: 32200, single: 16100 };
 const STATE_RATES = {
   "Alabama":0.05,"Alaska":0,"Arizona":0.025,"Arkansas":0.039,"California":0.133,
   "Colorado":0.044,"Connecticut":0.0699,"Delaware":0.066,"Florida":0,"Georgia":0.0519,
-  "Hawaii":0.11,"Idaho":0.05695,"Illinois":0.0495,"Indiana":0.03,"Iowa":0.038,
+  "Hawaii":0.11,"Idaho":0.05695,"Illinois":0,"Indiana":0.03,"Iowa":0,
   "Kansas":0.057,"Kentucky":0.035,"Louisiana":0.03,"Maine":0.0715,"Maryland":0.0575,
-  "Massachusetts":0.09,"Michigan":0.0425,"Minnesota":0.0985,"Mississippi":0.044,
+  "Massachusetts":0.09,"Michigan":0,"Minnesota":0.0985,"Mississippi":0,
   "Missouri":0.047,"Montana":0.059,"Nebraska":0.0464,"Nevada":0,"New Hampshire":0,
   "New Jersey":0.1075,"New Mexico":0.059,"New York":0.109,"North Carolina":0.0399,
-  "North Dakota":0.025,"Ohio":0.035,"Oklahoma":0.0475,"Oregon":0.099,"Pennsylvania":0.0307,
+  "North Dakota":0.025,"Ohio":0.035,"Oklahoma":0.0475,"Oregon":0.099,"Pennsylvania":0,
   "Rhode Island":0.0599,"South Carolina":0.062,"South Dakota":0,"Tennessee":0,"Texas":0,
   "Utah":0.0455,"Vermont":0.0875,"Virginia":0.0575,"Washington":0,"Washington DC":0.1075,
   "West Virginia":0.0482,"Wisconsin":0.0765,"Wyoming":0
 };
+/* States above set to 0 for qualified-plan distributions specifically:      */
+/* the 9 no-income-tax states, plus IL (full exemption, any age), IA (55+),  */
+/* MS (qualified distributions), PA (59.5+), and MI (2026 phase-out complete */
+/* for most filers, exempt up to $67,610 single / $135,220 MFJ). Several     */
+/* other states offer partial pension/retirement exclusions (e.g. NY $20k,  */
+/* GA $65k) that are not modeled here — see disclaimer.                     */
+
+/* ---------- Federal provisional-income thresholds for Social Security taxability ---------- */
+const SS_THRESHOLDS = {
+  mfj: { base: 32000, upper: 44000 },
+  single: { base: 25000, upper: 34000 }
+};
+
+function taxableSocialSecurity(ssBenefit, otherIncome, status){
+  if(ssBenefit <= 0) return 0;
+  const { base, upper } = SS_THRESHOLDS[status];
+  const provisional = otherIncome + 0.5 * ssBenefit;
+  if(provisional <= base) return 0;
+  if(provisional <= upper){
+    return Math.min(0.5 * (provisional - base), 0.5 * ssBenefit);
+  }
+  const tier1 = 0.5 * (upper - base);
+  const tier2 = 0.85 * (provisional - upper);
+  return Math.min(tier1 + tier2, 0.85 * ssBenefit);
+}
 
 /* ---------- populate state select ---------- */
 const stateSelect = document.getElementById('stateSelect');
@@ -511,12 +543,14 @@ const startAgeEl = document.getElementById('startAge');
 const startBalanceEl = document.getElementById('startBalance');
 const horizonAgeEl = document.getElementById('horizonAge');
 const growthRateEl = document.getElementById('growthRate');
+const ssIncomeEl = document.getElementById('ssIncome');
 
 function calculate(){
   const startAge = parseInt(startAgeEl.value);
   const startBalance = parseFloat(startBalanceEl.value) || 0;
   const horizonAge = parseInt(horizonAgeEl.value);
   const growth = parseFloat(growthRateEl.value)/100;
+  const ssIncome = parseFloat(ssIncomeEl.value) || 0;
   const stateRate = STATE_RATES[stateSelect.value];
 
   document.getElementById('ageVal').textContent = startAge;
@@ -538,22 +572,25 @@ function calculate(){
       balance = balance * (1+growth);
     }
 
-    let rmd = 0, fed = 0, state = 0, isRmdYear = false;
+    let rmd = 0, fed = 0, state = 0, taxableSS = 0, isRmdYear = false;
     if(age >= RMD_START_AGE){
       isRmdYear = true;
       const divisorAge = Math.min(age, 120);
       const divisor = RMD_TABLE[divisorAge] || RMD_TABLE[120];
       rmd = balance / divisor;
       rmd = Math.min(rmd, balance);
-      fed = federalTax(rmd, filingStatus);
+
+      taxableSS = taxableSocialSecurity(ssIncome, rmd, filingStatus);
+      fed = federalTax(rmd + taxableSS, filingStatus);
       state = rmd * stateRate;
+
       balance -= rmd;
       totalDist += rmd;
       totalFed += fed;
       totalState += state;
     }
 
-    rows.push({age, balance, rmd, fed, state, net: rmd-fed-state, isRmdYear});
+    rows.push({age, balance, rmd, fed, state, taxableSS, net: rmd-fed-state, isRmdYear});
   }
 
   // render stats
@@ -576,6 +613,7 @@ function calculate(){
       <td>${r.age}</td>
       <td>${fmtMoney(r.balance)}</td>
       <td>${r.isRmdYear ? fmtMoney(r.rmd) : '&mdash;'}</td>
+      <td>${r.isRmdYear ? fmtMoney(r.taxableSS) : '&mdash;'}</td>
       <td>${r.isRmdYear ? fmtMoney(r.fed) : '&mdash;'}</td>
       <td>${r.isRmdYear ? fmtMoney(r.state) : '&mdash;'}</td>
       <td>${r.isRmdYear ? fmtMoney(r.net) : '&mdash;'}</td>
