@@ -349,6 +349,15 @@
         </div>
 
         <div class="field">
+          <label>RMD Start Age</label>
+          <div class="toggle-row">
+            <button type="button" id="btnRmd73" class="active">Age 73 (born 1959 or earlier)</button>
+            <button type="button" id="btnRmd75">Age 75 (born 1960+)</button>
+          </div>
+          <div class="field-note">Set by birth year under SECURE 2.0, with no partial-year exceptions &mdash; even someone born December 31, 1959 uses age 73, while someone born one day later, January 1, 1960, uses age 75.</div>
+        </div>
+
+        <div class="field">
           <label>Current Qualified Plan Balance</label>
           <input type="text" inputmode="numeric" id="startBalance" value="$1,500,000">
         </div>
@@ -396,7 +405,7 @@
         </div>
 
         <div class="field-note">
-          RMD schedule uses the IRS Uniform Lifetime Table, current SECURE 2.0 start age (73), and 2026 federal brackets / standard deduction. Federal tax includes any Social Security made taxable by provisional income. State figures reflect qualified-plan-specific treatment for the 9 no-income-tax states plus IL, IA, MS, PA, and MI, which fully exempt retirement distributions; other states show a simplified flat/top-marginal rate and may have partial pension exclusions not modeled here. This is a planning estimate, not tax advice.
+          RMD schedule uses the IRS Uniform Lifetime Table, your selected SECURE 2.0 start age (73 or 75), and 2026 federal brackets / standard deduction. Federal tax includes any Social Security made taxable by provisional income. State figures reflect qualified-plan-specific treatment for the 9 no-income-tax states plus IL, IA, MS, PA, and MI, which fully exempt retirement distributions; other states show a simplified flat/top-marginal rate and may have partial pension exclusions not modeled here. This is a planning estimate, not tax advice.
         </div>
       </div>
 
@@ -464,7 +473,7 @@ const RMD_TABLE = {
   105:4.6,106:4.3,107:4.1,108:3.9,109:3.7,110:3.5,111:3.4,112:3.3,
   113:3.1,114:3.0,115:2.9,116:2.8,117:2.7,118:2.5,119:2.3,120:2.0
 };
-const RMD_START_AGE = 73;
+let RMD_START_AGE = 73;
 
 /* ---------- 2026 Federal Brackets (IRS Rev. Proc. 2025-32) ---------- */
 const FED_BRACKETS = {
@@ -543,6 +552,11 @@ const btnMFJ = document.getElementById('btnMFJ');
 const btnSingle = document.getElementById('btnSingle');
 btnMFJ.addEventListener('click', ()=>{filingStatus='mfj';btnMFJ.classList.add('active');btnSingle.classList.remove('active');calculate();});
 btnSingle.addEventListener('click', ()=>{filingStatus='single';btnSingle.classList.add('active');btnMFJ.classList.remove('active');calculate();});
+
+const btnRmd73 = document.getElementById('btnRmd73');
+const btnRmd75 = document.getElementById('btnRmd75');
+btnRmd73.addEventListener('click', ()=>{RMD_START_AGE=73;btnRmd73.classList.add('active');btnRmd75.classList.remove('active');calculate();});
+btnRmd75.addEventListener('click', ()=>{RMD_START_AGE=75;btnRmd75.classList.add('active');btnRmd73.classList.remove('active');calculate();});
 
 /* ---------- fed tax calc (marginal, applied to RMD income only, net of std deduction) ---------- */
 function federalTax(income, status, rateIncreasePoints){
